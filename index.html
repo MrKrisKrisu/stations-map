@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSM / Wikidata stations</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+    const map = L.map('map').setView([48.993553187953566, 8.402870490436648], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+    }).addTo(map);
+
+    const fetchStations = async (bbox) => {
+        const south = bbox.getSouth();
+        const west = bbox.getWest();
+        const north = bbox.getNorth();
+        const east = bbox.getEast();
+
+        const query = `
+                [out:json][timeout:25];
+                (
+                  node["railway"="station"](${south},${west},${north},${east});
+                  node["railway"="halt"](${south},${west},${north},${east});
+                  node["railway"="tram_stop"](${south},${west},${north},${east});
+                  node["railway"="yard"](${south},${west},${north},${east});
+                  node["railway"="service_station"](${south},${west},${north},${east});
+                  node["railway"="junction"](${south},${west},${north},${east});
+                  node["railway"="crossover"](${south},${west},${north},${east});
+                  node["railway"="spur_junction"](${south},${west},${north},${east});
+                  node["railway"="site"](${south},${west},${north},${east});
+                  node["highway"="bus_stop"](${south},${west},${north},${east});
+                );
+                out body;
+                >;
+                out skel qt;`;
+
+        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        return data.elements.map((element) => ({
+            id: element.id,
+            name: element.tags.name || "Unknown Station",
+            lat: element.lat,
+            lon: element.lon,
+            wikidata: element.tags["wikidata"] || null,
+            type: element.tags["railway"] || element.tags["highway"] || "unknown",
+        }));
+    };
+
+    const typeLabels = {
+        station: "Bahnhof",
+        halt: "Haltepunkt",
+        tram_stop: "Straßenbahnhaltestelle",
+        yard: "Rangierbahnhof / Güterbahnhof",
+        service_station: "Betriebsbahnhof",
+        junction: "Abzweigstelle",
+        crossover: "Überleitstelle",
+        spur_junction: "Anschlussstelle",
+        site: "Betriebsstelle",
+        bus_stop: "Bushaltestelle",
+        unknown: "Unbekannt",
+    };
+
+    const typeIcons = {
+        station: '<i class="fas fa-train"></i>',
+        halt: '<i class="fas fa-stop"></i>',
+        tram_stop: '<i class="fas fa-subway"></i>',
+        yard: '<i class="fas fa-warehouse"></i>',
+        service_station: '<i class="fas fa-tools"></i>',
+        junction: '<i class="fas fa-random"></i>',
+        crossover: '<i class="fas fa-exchange-alt"></i>',
+        spur_junction: '<i class="fas fa-sign-in-alt"></i>',
+        site: '<i class="fas fa-map-marker-alt"></i>',
+        bus_stop: '<i class="fas fa-bus"></i>',
+        unknown: '<i class="fas fa-question-circle"></i>',
+    };
+
+    const layers = {
+        station: L.layerGroup().addTo(map),
+        halt: L.layerGroup().addTo(map),
+        tram_stop: L.layerGroup(),
+        yard: L.layerGroup().addTo(map),
+        service_station: L.layerGroup().addTo(map),
+        junction: L.layerGroup().addTo(map),
+        crossover: L.layerGroup().addTo(map),
+        spur_junction: L.layerGroup().addTo(map),
+        site: L.layerGroup().addTo(map),
+        bus_stop: L.layerGroup(),
+        unknown: L.layerGroup().addTo(map),
+    };
+
+    L.control.layers(null, {
+        "Bahnhof": layers.station,
+        "Haltepunkt": layers.halt,
+        "Straßenbahnhaltestelle": layers.tram_stop,
+        "Rangierbahnhof / Güterbahnhof": layers.yard,
+        "Betriebsbahnhof": layers.service_station,
+        "Abzweigstelle": layers.junction,
+        "Überleitstelle": layers.crossover,
+        "Anschlussstelle": layers.spur_junction,
+        "Betriebsstelle": layers.site,
+        "Bushaltestelle": layers.bus_stop,
+        "Unbekannt": layers.unknown,
+    }).addTo(map);
+
+    const existingMarkers = new Map();
+
+    const updateStations = async () => {
+        if (map.getZoom() < 12) {
+            console.log("Zoom level too low for searching.");
+            return;
+        }
+
+        const bbox = map.getBounds();
+        const stations = await fetchStations(bbox);
+
+        stations.forEach((station) => {
+            if (existingMarkers.has(station.id)) return;
+            existingMarkers.set(station.id, true);
+
+            const typeLabel = typeLabels[station.type] || typeLabels["unknown"];
+            const iconHtml = typeIcons[station.type] || typeIcons["unknown"];
+            const iconColor = station.wikidata ? '#000' : '#F44336';
+            const popupContent = `<b>${iconHtml} ${typeLabel}</b><br>${station.name}` +
+                (station.wikidata
+                    ? `<br>Wikidata: <a href="https://www.wikidata.org/wiki/${station.wikidata}" target="_blank">${station.wikidata}</a>`
+                    : `<br><span style="color: red;">Keine Wikidata-ID bekannt!</span>`);
+
+            const icon = L.divIcon({
+                html: `<div style="font-size: 24px; text-align: center; line-height: 24px; color: ${iconColor};">${iconHtml}</div>`,
+                className: 'custom-icon',
+                iconSize: [30, 30],
+            });
+
+            const layer = layers[station.type] || layers.unknown;
+            L.marker([station.lat, station.lon], { icon }).addTo(layer).bindPopup(popupContent);
+        });
+    };
+
+    map.on('moveend', updateStations);
+
+    updateStations();
+</script>
+</body>
+</html>
