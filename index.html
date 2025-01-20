@@ -133,6 +133,25 @@
 
     const existingMarkers = new Map();
 
+    const getWikidataTypFromStation = (station) => {
+        if (station.type === "station") return "Q27996466"; // Bahnhof
+        if (station.type === "halt") return "Q27996460"; // Haltepunkt
+        if (station.type === "tram_stop") return "Q2175765"; // Straßenbahnhaltestelle
+        if (station.type === "yard") return "Q55493"; // Rangierbahnhof / Güterbahnhof
+        if (station.type === "service_station") return "Q65227640"; // Betriebsbahnhof
+        if (station.type === "junction") return "Q336764"; // Abzweigstelle
+        if (station.type === "crossover") return "Q27996463"; // Überleitstelle
+        if (station.type === "spur_junction") return "Q27996461"; // Anschlussstelle
+        if (station.type === "site") return "Q124817561"; // Betriebsstelle
+        if (station.type === "bus_stop") return "Q953806"; // Bushaltestelle
+        return ""; // Unbekannt
+    };
+
+    const generateQuickStatements = (station) => {
+        return `qid,Lde,P31,P17,P625,P11693
+,"${station.name}",${getWikidataTypFromStation(station)},Q183,@${station.lat.toFixed(6)}/${station.lon.toFixed(6)},"""${station.id}"""`;
+    };
+
     const updateStations = async () => {
         if (map.getZoom() < 12) {
             console.log("Zoom level too low for searching.");
@@ -149,11 +168,13 @@
             const typeLabel = typeLabels[station.type] || typeLabels["unknown"];
             const iconHtml = typeIcons[station.type] || typeIcons["unknown"];
             const iconColor = station.wikidata ? '#000' : '#F44336';
+            const quickStatements = !station.wikidata ? generateQuickStatements(station) : null;
             const popupContent = `<b>${iconHtml} ${typeLabel}</b><br><i>${station.name}</i>` +
                 `<br>${station.lat.toFixed(6)}, ${station.lon.toFixed(6)}<br><br>` +
                 (station.wikidata
                     ? `Wikidata: <a href="https://www.wikidata.org/wiki/${station.wikidata}" target="_blank">${station.wikidata}</a>`
-                    : `<span style="color: red;">Keine Wikidata-ID bekannt!</span>`) +
+                    : `<span style="color: red;">Keine Wikidata-ID bekannt!</span><br><a href="https://www.wikidata.org/w/index.php?search=${encodeURIComponent(station.name)}" target="_blank">Wikidata durchsuchen</a>` +
+                    (quickStatements ? `<br><pre>${quickStatements}</pre>` : "")) +
                 `<br><br><a href="https://www.openstreetmap.org/node/${station.id}" target="_blank">OSM</a>`;
 
             const icon = L.divIcon({
