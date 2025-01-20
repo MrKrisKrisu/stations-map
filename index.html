@@ -29,6 +29,13 @@
         maxZoom: 19,
     }).addTo(map);
 
+    const updateURL = () => {
+        const center = map.getCenter();
+        const zoom = map.getZoom();
+        const newURL = `${window.location.origin}${window.location.pathname}?lat=${center.lat.toFixed(6)}&lon=${center.lng.toFixed(6)}&zoom=${zoom}`;
+        window.history.replaceState(null, '', newURL);
+    };
+
     const fetchStations = async (bbox) => {
         const south = bbox.getSouth();
         const west = bbox.getWest();
@@ -160,7 +167,19 @@
         });
     };
 
-    map.on('moveend', updateStations);
+    map.on('moveend', () => {
+        updateStations();
+        updateURL();
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const lat = parseFloat(params.get('lat'));
+    const lon = parseFloat(params.get('lon'));
+    const zoom = parseInt(params.get('zoom'), 10);
+
+    if (!isNaN(lat) && !isNaN(lon) && !isNaN(zoom)) {
+        map.setView([lat, lon], zoom);
+    }
 
     updateStations();
 </script>
